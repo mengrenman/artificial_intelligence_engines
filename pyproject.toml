@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aie"
+version = "0.1.0"
+description = "Companion code for Stone (2020), Artificial Intelligence Engines"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Companion code" }]
+dependencies = [
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.0",
+    "jupyterlab>=4.0",
+    "ipykernel>=6.0",
+    "pytest>=7.0",
+    "nbmake>=1.5",
+    "ruff>=0.5",
+]
+torch = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+]
+
+[tool.setuptools.packages.find]
+include = ["aie*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# Book notation uses single-letter capitals (W, X, T) and unicode maths symbols.
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks favour compact plotting cells (e.g. `plt.xlabel(..); plt.ylabel(..)`).
+"notebooks/*.ipynb" = ["E401", "E402", "E501", "E701", "E702", "E731", "F401", "I001", "B007", "B018", "B905", "UP031"]
