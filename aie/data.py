@@ -1,7 +1,8 @@
 """Toy datasets reproducing the figures in Stone (2020).
 
 These are kept tiny so notebooks run instantly without external data
-downloads. For larger experiments later chapters can pull in MNIST etc.
+downloads. ``mnist()`` optionally loads the real MNIST digits (downloaded
+once and cached under ``data/``).
 """
 
 from __future__ import annotations
@@ -152,3 +153,116 @@ def digits(
     X = np.clip(X + rng.normal(0.0, noise, X.shape), 0.0, 1.0)
     perm = rng.permutation(n)
     return X[perm], y[perm]
+
+
+# ---------------------------------------------------------------------------
+# Real MNIST (optional; requires a one-off ~11 MB download)
+# ---------------------------------------------------------------------------
+
+MNIST_MIRRORS = (
+    "https://storage.googleapis.com/cvdf-datasets/mnist/",
+    "https://ossci-datasets.s3.amazonaws.com/mnist/",
+)
+_MNIST_FILES = {
+    "train": ("train-images-idx3-ubyte.gz", "train-labels-idx1-ubyte.gz"),
+    "test": ("t10k-images-idx3-ubyte.gz", "t10k-labels-idx1-ubyte.gz"),
+}
+
+
+def read_idx(path) -> np.ndarray:
+    """Read a (optionally gzipped) IDX file, the format MNIST is distributed in.
+
+    The header is two zero bytes, a type code (0x08 = uint8), the number of
+    dimensions, then one big-endian uint32 per dimension.
+    """
+    import gzip
+    from pathlib import Path
+
+    raw = Path(path).read_bytes()
+    if raw[:2] == b"\x1f\x8b":  # gzip magic number
+        raw = gzip.decompress(raw)
+    if len(raw) < 4 or raw[0] != 0 or raw[1] != 0 or raw[2] != 0x08:
+        raise ValueError(f"{path} is not an unsigned-byte IDX file")
+    ndim = raw[3]
+    shape = tuple(int.from_bytes(raw[4 + 4 * i: 8 + 4 * i], "big") for i in range(ndim))
+    data = np.frombuffer(raw, dtype=np.uint8, offset=4 + 4 * ndim)
+    if data.size != int(np.prod(shape)):
+        raise ValueError(f"{path}: header shape {shape} does not match {data.size} bytes")
+    return data.reshape(shape)
+
+
+def _default_data_dir():
+    import os
+    from pathlib import Path
+
+    env = os.environ.get("AIE_DATA_DIR")
+    if env:
+        return Path(env)
+    repo = Path(__file__).resolve().parents[1]
+    if (repo / "pyproject.toml").exists():  # running from a source checkout
+        return repo / "data"
+    return Path.home() / ".cache" / "aie"   # pip-installed (e.g. on Colab)
+
+
+def mnist(
+    split: str = "train",
+    data_dir=None,
+    download: bool = True,
+    n: int | None = None,
+    normalize: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load the MNIST handwritten digits (LeCun et al. 1998; book Ch 9).
+
+    Files are cached in ``<data_dir>/mnist/`` and downloaded on first use. The
+    default ``data_dir`` is ``$AIE_DATA_DIR`` if set, else the repo's ``data/``
+    folder in a source checkout, else ``~/.cache/aie``.
+
+    Parameters
+    ----------
+    split     : "train" (60,000 images) or "test" (10,000 images)
+    data_dir  : cache directory (see above for the default)
+    download  : fetch missing files from a public mirror
+    n         : if given, return only the first ``n`` examples
+    normalize : scale pixels to [0, 1] float64 (else raw uint8)
+
+    Returns
+    -------
+    X : (N, 28, 28) images
+    y : (N,) integer labels 0–9
+    """
+    from pathlib import Path
+
+    if split not in _MNIST_FILES:
+        raise ValueError(f"split must be 'train' or 'test', got {split!r}")
+    root = (Path(data_dir) if data_dir is not None else _default_data_dir()) / "mnist"
+    paths = [root / name for name in _MNIST_FILES[split]]
+    for p in paths:
+        if not p.exists():
+            if not download:
+                raise FileNotFoundError(f"{p} not found (pass download=True to fetch it)")
+            _download(p)
+    X, y = read_idx(paths[0]), read_idx(paths[1])
+    if len(X) != len(y):
+        raise ValueError("MNIST image and label files have different lengths")
+    if n is not None:
+        X, y = X[:n], y[:n]
+    X = X.astype(np.float64) / 255.0 if normalize else X
+    return X, y.astype(np.int64)
+
+
+def _download(path) -> None:
+    import urllib.request
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    errors = []
+    for base in MNIST_MIRRORS:
+        tmp = path.with_suffix(path.suffix + ".part")
+        try:
+            urllib.request.urlretrieve(base + path.name, tmp)
+            read_idx(tmp)  # validate before committing to the cache
+            tmp.replace(path)
+            return
+        except Exception as e:  # noqa: BLE001 - try the next mirror
+            errors.append(f"{base}: {e}")
+            tmp.unlink(missing_ok=True)
+    raise RuntimeError(f"could not download {path.name}:\n" + "\n".join(errors))

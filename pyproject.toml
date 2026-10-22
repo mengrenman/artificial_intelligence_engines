@@ -9,7 +9,7 @@ description = "Companion code for Stone (2020), Artificial Intelligence Engines"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Companion code" }]
+authors = [{ name = "mengrenman" }]
 dependencies = [
     "numpy>=1.24",
     "matplotlib>=3.7",
@@ -27,8 +27,16 @@ dev = [
 ]
 torch = [
     "torch>=2.0",
-    "torchvision>=0.15",
 ]
+
+# CPU-only PyTorch wheels (much smaller than the default CUDA builds on Linux).
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.setuptools.packages.find]
 include = ["aie*", "scripts*"]

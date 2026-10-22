@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MPLBACKEND: Agg
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -13,17 +23,33 @@ jobs:
       matrix:
         python-version: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.1
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
       - name: Install
-        run: uv pip install -e ".[dev]"
+        run: uv sync --locked --extra dev
       - name: Lint
-        run: ruff check .
+        run: uv run ruff check .
       - name: Unit tests
-        run: pytest -q
+        run: uv run pytest -q
       - name: Execute notebooks
-        env:
-          MPLBACKEND: Agg
-        run: pytest -q --nbmake --nbmake-timeout=600 notebooks
+        run: >-
+          uv run pytest -q --nbmake --nbmake-timeout=600 notebooks
+          --ignore=notebooks/appendix_pytorch.ipynb
+
+  torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.1
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install (CPU PyTorch)
+        run: uv sync --locked --extra dev --extra torch
+      - name: PyTorch tests
+        run: uv run pytest -q tests/test_torch_models.py
+      - name: Execute PyTorch notebook
+        run: uv run pytest -q --nbmake --nbmake-timeout=600 notebooks/appendix_pytorch.ipynb

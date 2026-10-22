@@ -1,9 +1,11 @@
 """The backpropagation algorithm — Chapter 4 of Stone (2020).
 
-A 3-layer feed-forward network with one hidden layer of sigmoidal units and
-a linear output layer (the configuration recommended in Section 4.5 to
-mitigate vanishing gradients on the output side). Bias is implemented as
-an extra input fixed at -1, exactly as in Fig 4.2.
+A 3-layer feed-forward network with one hidden layer of sigmoidal units.
+The output layer is linear by default (Section 4.3: input and output units
+need not be sigmoidal, by Cybenko's theorem); pass ``output="sigmoid"`` for
+the sigmoidal output units used in the book's XOR example (Figs 4.5–4.6),
+which solves XOR with 0/1 targets in under 40 iterations. Bias is
+implemented as an extra input fixed at -1, exactly as in Fig 4.2.
 
 References
 ----------
@@ -42,7 +44,11 @@ class BackpropNetwork:
         lr: float = 0.1,
         seed: int = 0,
         weight_scale: float = 0.5,
+        output: str = "linear",
     ) -> None:
+        if output not in ("linear", "sigmoid"):
+            raise ValueError(f"output must be 'linear' or 'sigmoid', got {output!r}")
+        self.output = output
         rng = np.random.default_rng(seed)
         self.W1: np.ndarray = rng.standard_normal((n_hidden, n_inputs + 1)) * weight_scale
         self.W2: np.ndarray = rng.standard_normal((n_outputs, n_hidden + 1)) * weight_scale
@@ -60,7 +66,9 @@ class BackpropNetwork:
         U1 = Xa @ self.W1.T                # (T, n_hidden)
         Z = sigmoid(U1)                    # (T, n_hidden)       Eq 4.1
         Za = self._augment(Z)              # (T, n_hidden + 1)
-        Y = Za @ self.W2.T                 # (T, n_out) — identity output (Sec 4.5)
+        Y = Za @ self.W2.T                 # (T, n_out) — linear output
+        if self.output == "sigmoid":
+            Y = sigmoid(Y)                 # sigmoidal output units (Fig 4.5)
         return Y, Z, Xa, Za
 
     def forward(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -80,8 +88,10 @@ class BackpropNetwork:
         """Return (dE/dW1, dE/dW2, E) for the current weights."""
         Y, Z, Xa, Za = self._forward_cached(X)
 
-        # ---- output-layer delta (linear activation): δ_k = y_k − ŷ_k  (Eq 4.16)
+        # ---- output-layer delta: δ_k = (y_k − ŷ_k) f'(u_k)  (Eq 4.16); f' = 1 if linear
         delta_out = mean_sse_grad(Y, T)    # (T, n_out), includes the 1/T factor
+        if self.output == "sigmoid":
+            delta_out = delta_out * sigmoid_deriv(Y)
         grad_W2 = delta_out.T @ Za         # (n_out, n_hidden + 1)
 
         # ---- hidden-layer delta (Eq 4.27); the bias unit has no incoming weights,
